@@ -1,0 +1,19 @@
+Index: recommender.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/recommender.py b/recommender.py
+new file mode 100644
+--- /dev/null	(date 1792576403956)
++++ b/recommender.py	(date 1792576403956)
+@@ -0,0 +1,8 @@
++import pandas as pd
++
++df = pd.read_csv("movies.csv")
++df["overview"] = df["overview"].fillna("")
++
++print(df.shape)            # (24, 4)
++print(df.head(3))         # pierwsze wiersze
++print(df.isnull().sum())   # braki w kolumnach
+\ No newline at end of file

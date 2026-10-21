@@ -1,49 +1,206 @@
+from math import isfinite
+
 from flask import Flask, jsonify, request
+from recommender import df, recommend
 
 app = Flask(__name__)
 
+
+# Laboratorium 1: przykładowe produkty
 PRODUCTS = [
-    {"id": 1, "nazwa": "Klawiatura mechaniczna", "kategoria": "akcesoria", "cena": 349.99, "opis": "Przełączniki hot-swap, podświetlenie RGB"},
-    {"id": 2, "nazwa": "Mysz bezprzewodowa", "kategoria": "akcesoria", "cena": 129.00, "opis": "Ciche przyciski, 4000 DPI"},
-    {"id": 3, "nazwa": "Monitor 27 cali", "kategoria": "monitory", "cena": 1099.00, "opis": "Matryca IPS, 144 Hz"},
-    {"id": 4, "nazwa": "Słuchawki nauszne", "kategoria": "audio", "cena": 449.00, "opis": "ANC, 40 h pracy na baterii"},
-    {"id": 5, "nazwa": "Hub USB-C", "kategoria": "akcesoria", "cena": 199.00, "opis": "HDMI, 3x USB-A, czytnik SD"},
+    {
+        "id": 1,
+        "nazwa": "Klawiatura mechaniczna",
+        "kategoria": "akcesoria",
+        "cena": 349.99,
+        "opis": "Przelaczniki mechaniczne, podswietlenie RGB",
+    },
+    {
+        "id": 2,
+        "nazwa": "Mysz bezprzewodowa",
+        "kategoria": "akcesoria",
+        "cena": 129.00,
+        "opis": "Ciche przyciski, 4000 DPI",
+    },
+    {
+        "id": 3,
+        "nazwa": "Monitor 27 cali",
+        "kategoria": "monitory",
+        "cena": 1099.00,
+        "opis": "Matryca IPS, 144 Hz",
+    },
+    {
+        "id": 4,
+        "nazwa": "Sluchawki nauszne",
+        "kategoria": "audio",
+        "cena": 449.00,
+        "opis": "Redukcja szumow, 40 godzin pracy",
+    },
+    {
+        "id": 5,
+        "nazwa": "Hub USB-C",
+        "kategoria": "akcesoria",
+        "cena": 199.00,
+        "opis": "HDMI, USB-A, czytnik kart SD",
+    },
 ]
 
-@app.route("/api/health")
+
+@app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
-@app.route("/api/products")
-def products():
-    return jsonify(PRODUCTS)
 
-@app.route("/api/products/<int:id>")
-def product(id):
-    for product in PRODUCTS:
-        if product["id"] == id:
-            return jsonify(product)
+@app.route("/api/products", methods=["GET"])
+def api_products():
+    products = PRODUCTS
 
-    return jsonify({"error": "not found"}), 404
+    if "max_price" in request.args:
+        try:
+            max_price = float(request.args["max_price"])
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "max_price musi byc poprawna liczba"
+            }), 400
+
+        if not isfinite(max_price) or max_price < 0:
+            return jsonify({
+                "error": "max_price musi byc liczba >= 0"
+            }), 400
+
+        products = [
+            product for product in PRODUCTS
+            if product["cena"] <= max_price
+        ]
+
+    return jsonify(products)
+
+
+@app.route("/api/products/<int:product_id>", methods=["GET"])
+def api_product_by_id(product_id):
+    product = next(
+        (item for item in PRODUCTS if item["id"] == product_id),
+        None,
+    )
+
+    if product is None:
+        return jsonify({"error": "not found"}), 404
+
+    return jsonify(product)
 
 
 @app.route("/api/products", methods=["POST"])
-def add_product():
-    data = request.get_json()
+def api_create_product():
+    if not request.is_json:
+        return jsonify({
+            "error": "Content-Type musi byc application/json"
+        }), 400
 
-    new_id = max(product["id"] for product in PRODUCTS) + 1
+    payload = request.get_json(silent=True)
 
-    new_product = {
-        "id": new_id,
-        "nazwa": data["nazwa"],
-        "kategoria": data["kategoria"],
-        "cena": data["cena"],
-        "opis": data["opis"]
+    if not isinstance(payload, dict):
+        return jsonify({"error": "JSON musi byc obiektem"}), 400
+
+    for key in ("nazwa", "kategoria", "opis"):
+        value = payload.get(key)
+
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({
+                "error": f"{key} musi byc niepustym tekstem"
+            }), 400
+
+    if "id" in payload:
+        return jsonify({
+            "error": "id jest nadawane przez serwer"
+        }), 400
+
+    price = payload.get("cena")
+
+    if (
+        isinstance(price, bool)
+        or not isinstance(price, (int, float))
+        or not isfinite(float(price))
+        or price < 0
+    ):
+        return jsonify({
+            "error": "cena musi byc liczba >= 0"
+        }), 400
+
+    product = {
+        "id": max(
+            (item["id"] for item in PRODUCTS),
+            default=0
+        ) + 1,
+        "nazwa": payload["nazwa"].strip(),
+        "kategoria": payload["kategoria"].strip(),
+        "cena": float(price),
+        "opis": payload["opis"].strip(),
     }
 
-    PRODUCTS.append(new_product)
+    PRODUCTS.append(product)
 
-    return jsonify(new_product), 201
+    return jsonify(product), 201
+
+
+# Laboratorium 2: rekomendacje filmow
+@app.route("/api/recommend", methods=["GET"])
+def api_recommend():
+    title = request.args.get("title", "").strip()
+
+    if not title:
+        return jsonify({
+            "error": "Podaj parametr ?title=..."
+        }), 400
+
+    raw_top_n = request.args.get("top_n")
+
+    if raw_top_n is None:
+        top_n = 5
+    else:
+        try:
+            top_n = int(raw_top_n)
+        except ValueError:
+            return jsonify({
+                "error": "top_n musi byc liczba calkowita od 1 do 10"
+            }), 400
+
+    if not 1 <= top_n <= 10:
+        return jsonify({
+            "error": "top_n musi byc z zakresu 1-10"
+        }), 400
+
+    genre = request.args.get("genre", "").strip() or None
+
+    recommendations = recommend(
+        title,
+        top_n=top_n,
+        genre=genre,
+    )
+
+    if recommendations is None:
+        return jsonify({
+            "error": "Nie znam takiego filmu",
+            "title": title,
+        }), 404
+
+    return jsonify({
+        "title": title,
+        "count": len(recommendations),
+        "recommendations": recommendations,
+    })
+
+
+@app.route("/api/movies", methods=["GET"])
+def api_movies():
+    movies = df[
+        ["title", "genres", "overview", "rating"]
+    ].to_dict(orient="records")
+
+    return jsonify({
+        "count": len(movies),
+        "movies": movies,
+    })
+
 
 if __name__ == "__main__":
     app.run(debug=True)
