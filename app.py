@@ -1,7 +1,7 @@
 from math import isfinite
 
 from flask import Flask, jsonify, request
-from recommender import df, recommend
+from recommender import df, recommend, recommend_collaborative, ratings_matrix
 
 app = Flask(__name__)
 
@@ -199,6 +199,51 @@ def api_movies():
     return jsonify({
         "count": len(movies),
         "movies": movies,
+    })
+
+#============LAB3=========
+@app.route("/api/recommend/collaborative", methods=["GET"])
+def collaborative_recommendations():
+    user = request.args.get("user")
+
+    if not user:
+        return jsonify({
+            "error": "Missing required parameter: user"
+        }), 400
+
+    try:
+        top_n = int(request.args.get("top_n", 5))
+        k = int(request.args.get("k", 3))
+    except ValueError:
+        return jsonify({
+            "error": "top_n and k must be integers"
+        }), 400
+
+    if top_n < 1:
+        return jsonify({
+            "error": "top_n must be greater than 0"
+        }), 400
+
+    if k < 1:
+        return jsonify({
+            "error": "k must be greater than 0"
+        }), 400
+
+    if user not in ratings_matrix.index:
+        return jsonify({
+            "error": "Unknown user",
+            "known_users": list(ratings_matrix.index)
+        }), 404
+
+    recommendations = recommend_collaborative(
+        user,
+        top_n=top_n,
+        k=k
+    )
+
+    return jsonify({
+        "user": user,
+        "recommendations": recommendations
     })
 
 
