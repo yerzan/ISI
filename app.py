@@ -1,7 +1,9 @@
 from math import isfinite
 
 from flask import Flask, jsonify, request
-from recommender import df, recommend, recommend_collaborative, ratings_matrix
+from sklearn import neighbors
+
+from recommender import df, recommend, recommend_collaborative, ratings_matrix, similar_users_collaborative, user_means
 
 app = Flask(__name__)
 
@@ -243,9 +245,39 @@ def collaborative_recommendations():
 
     return jsonify({
         "user": user,
+        "mean_rating": round(float(user_means.loc[user]), 3),
+        "count": len(recommendations),
         "recommendations": recommendations
     })
 
+@app.route("/api/users", methods=["GET"])
+def api_users():
+    users = sorted(ratings_matrix.index.tolist())
+    return jsonify({"count": len(users), "users": users})
+
+
+@app.route("/api/similar", methods=["GET"])
+def api_similar_users():
+    user = request.args.get("user", "").strip()
+    if not user:
+        return jsonify({"error": "Podaj parametr ?user=..."}), 400
+
+    try:
+        k = int(request.args.get("k", 3))
+    except ValueError:
+        return jsonify({"error": "k musi byc liczba calkowita"}), 400
+
+    if not 1 <= k <= len(ratings_matrix.index) - 1:
+        return jsonify({"error": f"k musi byc z zakresu 1-{len(ratings_matrix.index) - 1}"}), 400
+
+    neighbors = similar_users_collaborative(user, k=k)
+    if neighbors is None:
+        return jsonify({
+            "error": "Nie znam takiego uzytkownika",
+            "known_users": sorted(ratings_matrix.index.tolist())
+        }), 404
+
+    return jsonify({"user": user, "neighbors": neighbors})
 
 if __name__ == "__main__":
     app.run(debug=True)
